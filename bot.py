@@ -142,7 +142,19 @@ async def start_webserver():
     port = int(os.environ.get("PORT", 10000))  # Render free plan exposes this
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    print(f"Webserver running on port {port}")
+    print(f"🌐 Webserver running on port {port}")
+
+    # Self-ping to keep instance awake
+    async def self_ping():
+        while True:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    await session.get(f"http://localhost:{port}")
+            except Exception as e:
+                print("Ping error:", e)
+            await asyncio.sleep(600)  # 10 minutes
+
+    asyncio.create_task(self_ping())
 
 # ================== RUN BOT + WEB SERVER ==================
 async def main():
