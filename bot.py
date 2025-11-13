@@ -2,7 +2,7 @@ import os
 import asyncio
 import aiohttp
 import datetime
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from dotenv import load_dotenv
@@ -13,7 +13,7 @@ from aiohttp import web
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID")) 
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
 KORA_SECRET_KEY = os.getenv("KORA_SECRET_KEY")
 NAIRA_TRADER_LINK = os.getenv("NAIRA_TRADER_LINK")
 PRIVATE_GROUP_LINK = os.getenv("PRIVATE_GROUP_LINK")
@@ -40,8 +40,7 @@ async def verify_payment(reference: str) -> bool:
                     return True
     return False
 
-# ================== START COMMAND ==================
-@dp.message(Command("start"))
+# ================== HANDLERS ==================
 async def start_cmd(message: types.Message):
     builder = InlineKeyboardBuilder()
     builder.button(text="Proceed to Confirmation 🔐", callback_data="confirm")
@@ -52,8 +51,6 @@ async def start_cmd(message: types.Message):
         reply_markup=builder.as_markup()
     )
 
-# ================== CONFIRMATION STEP ==================
-@dp.callback_query(lambda c: c.data == "confirm")
 async def confirm_user(callback: types.CallbackQuery):
     builder = InlineKeyboardBuilder()
     builder.button(text="🔗 Register on Naira Trader", url=NAIRA_TRADER_LINK)
@@ -70,8 +67,6 @@ async def confirm_user(callback: types.CallbackQuery):
         parse_mode="Markdown"
     )
 
-# ================== VERIFY PAYMENT ==================
-@dp.message(Command("verify"))
 async def verify_cmd(message: types.Message):
     if is_verified(message.from_user.id):
         if has_accepted_agreement(message.from_user.id):
@@ -99,8 +94,6 @@ async def verify_cmd(message: types.Message):
     else:
         await message.reply("❌ Payment not found or pending. Try again shortly.")
 
-# ================== RECEIVE SIGNED PDF ==================
-@dp.message(lambda message: message.document)
 async def receive_signed_pdf(message: types.Message):
     if not is_verified(message.from_user.id):
         await message.reply("⚠️ You must verify your payment first.")
@@ -130,7 +123,7 @@ async def receive_signed_pdf(message: types.Message):
         f"File saved: {save_path}"
     )
 
-# ================== DUMMY WEB SERVER FOR RENDER ==================
+# ================== DUMMY WEB SERVER (RENDER FREE PLAN) ==================
 async def handle(request):
     return web.Response(text="🤖 MakeBankGuru Bot Running!")
 
@@ -139,12 +132,12 @@ async def start_webserver():
     app.add_routes([web.get('/', handle)])
     runner = web.AppRunner(app)
     await runner.setup()
-    port = int(os.environ.get("PORT", 10000))  # Render free plan exposes this
+    port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     print(f"🌐 Webserver running on port {port}")
 
-    # Self-ping to keep instance awake
+    # self-ping to stay awake
     async def self_ping():
         while True:
             try:
@@ -152,7 +145,7 @@ async def start_webserver():
                     await session.get(f"http://localhost:{port}")
             except Exception as e:
                 print("Ping error:", e)
-            await asyncio.sleep(600)  # 10 minutes
+            await asyncio.sleep(600)
 
     asyncio.create_task(self_ping())
 
@@ -160,6 +153,13 @@ async def start_webserver():
 async def main():
     await start_webserver()
     print("🤖 MakeBankGuru Verification Bot running...")
+
+    # Register handlers explicitly (Aiogram v3)
+    dp.message.register(start_cmd, Command("start"))
+    dp.callback_query.register(confirm_user, F.data == "confirm")
+    dp.message.register(verify_cmd, Command("verify"))
+    dp.message.register(receive_signed_pdf, F.document)
+
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
