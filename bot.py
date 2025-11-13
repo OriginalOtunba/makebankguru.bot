@@ -7,6 +7,7 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from dotenv import load_dotenv
 from database import init_db, add_user, is_verified, mark_agreement_accepted, has_accepted_agreement
+from aiohttp import web
 
 # ================== CONFIG ==================
 load_dotenv()
@@ -105,18 +106,15 @@ async def receive_signed_pdf(message: types.Message):
         await message.reply("⚠️ You must verify your payment first.")
         return
 
-    # Only allow PDFs
     if not message.document.file_name.lower().endswith(".pdf"):
         await message.reply("❌ Only PDF files are accepted.")
         return
 
-    # Save file
     timestamp = int(datetime.datetime.now().timestamp())
     save_path = os.path.join(SIGNED_DIR, f"{message.from_user.id}_{timestamp}.pdf")
     file = await bot.get_file(message.document.file_id)
     await file.download_to_drive(save_path)
 
-    # Mark agreement accepted
     mark_agreement_accepted(message.from_user.id)
 
     await message.reply(
@@ -125,7 +123,6 @@ async def receive_signed_pdf(message: types.Message):
         f"👥 Private Group: {PRIVATE_GROUP_LINK}"
     )
 
-    # Notify admin
     await bot.send_message(
         ADMIN_CHAT_ID,
         f"📄 New signed agreement uploaded!\n"
@@ -133,8 +130,23 @@ async def receive_signed_pdf(message: types.Message):
         f"File saved: {save_path}"
     )
 
-# ================== RUN BOT ==================
+# ================== DUMMY WEB SERVER FOR RENDER ==================
+async def handle(request):
+    return web.Response(text="🤖 MakeBankGuru Bot Running!")
+
+async def start_webserver():
+    app = web.Application()
+    app.add_routes([web.get('/', handle)])
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))  # Render free plan exposes this
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"Webserver running on port {port}")
+
+# ================== RUN BOT + WEB SERVER ==================
 async def main():
+    await start_webserver()
     print("🤖 MakeBankGuru Verification Bot running...")
     await dp.start_polling(bot)
 
