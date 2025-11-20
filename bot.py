@@ -46,7 +46,7 @@ async def start_cmd(message: types.Message):
     builder.button(text="Proceed to Confirmation 🔐", callback_data="confirm")
     await message.answer(
         "👋 *Welcome to MakeBankGuru!*\n\n"
-        "This bot confirms your payment and guides you through the agreement to access our premium flipping service.",
+        "This bot confirms your payment and guides you through the agreement to access our premium support service.",
         parse_mode="Markdown",
         reply_markup=builder.as_markup()
     )
@@ -164,3 +164,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
