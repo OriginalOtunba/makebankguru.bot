@@ -40,13 +40,13 @@ async def verify_payment(reference: str) -> bool:
                     return True
     return False
 
-# ================== HANDLERS ==================
+# ================== TELEGRAM HANDLERS ==================
 async def start_cmd(message: types.Message):
     builder = InlineKeyboardBuilder()
     builder.button(text="Proceed to Confirmation 🔐", callback_data="confirm")
     await message.answer(
         "👋 *Welcome to MakeBankGuru!*\n\n"
-        "This bot confirms your payment and guides you through the agreement to access our premium support service.",
+        "This bot confirms your payment and handles your onboarding.",
         parse_mode="Markdown",
         reply_markup=builder.as_markup()
     )
@@ -55,14 +55,14 @@ async def confirm_user(callback: types.CallbackQuery):
     builder = InlineKeyboardBuilder()
     builder.button(text="🔗 Register on Naira Trader", url=NAIRA_TRADER_LINK)
     await callback.message.edit_text(
-        "✅ Step 1: Register via our affiliate link below.\n\nOnce done, proceed to Step 2 — payment confirmation.",
+        "Step 1: Register via our affiliate link below.\n\nThen proceed to Step 2 — payment confirmation.",
         parse_mode="Markdown",
         reply_markup=builder.as_markup()
     )
     await callback.message.answer(
-        f"💵 Step 2: Pay ₦20,000 setup fee here:\n\n"
-        f"👉 [Korapay Payment Link]({KORAPAY_PAYMENT_LINK})\n\n"
-        "After payment, you’ll get a *payment reference code*. Send it below in this format:\n"
+        f"💵 Step 2: Pay ₦20,000 here:\n"
+        f"[Korapay Payment Link]({KORAPAY_PAYMENT_LINK})\n\n"
+        "After payment, you'll receive a *reference code*. Send it using:\n"
         "`/verify REF12345`",
         parse_mode="Markdown"
     )
@@ -70,15 +70,16 @@ async def confirm_user(callback: types.CallbackQuery):
 async def verify_cmd(message: types.Message):
     if is_verified(message.from_user.id):
         if has_accepted_agreement(message.from_user.id):
-            await message.reply("✅ You’re already verified and agreement uploaded.")
+            await message.reply("You are already fully verified ✔️")
             return
         else:
-            await message.reply("✅ Payment verified. Please upload your signed agreement PDF to proceed.")
+            await message.reply("Payment verified ✔️\nPlease upload your signed agreement PDF.")
             return
 
+    # Extract reference
     parts = message.text.strip().split()
     if len(parts) < 2:
-        await message.reply("⚠️ Please include your payment reference. Example: `/verify REF12345`", parse_mode="Markdown")
+        await message.reply("Send reference like: `/verify REF12345`", parse_mode="Markdown")
         return
 
     reference = parts[1]
@@ -88,7 +89,8 @@ async def verify_cmd(message: types.Message):
     if ok:
         add_user(message.from_user.id, message.from_user.username or "N/A", reference)
         await message.reply(
-            f"🎉 Payment confirmed!\n\nPlease download, sign, and upload your service agreement PDF to this chat:\n🧾 [Service Agreement PDF]({AGREEMENT_LINK})",
+            f"🎉 Payment confirmed!\n\nUpload your signed agreement PDF:\n"
+            f"[Agreement PDF]({AGREEMENT_LINK})",
             parse_mode="Markdown"
         )
     else:
@@ -96,65 +98,74 @@ async def verify_cmd(message: types.Message):
 
 async def receive_signed_pdf(message: types.Message):
     if not is_verified(message.from_user.id):
-        await message.reply("⚠️ You must verify your payment first.")
+        await message.reply("You must verify your payment first.")
         return
 
     if not message.document.file_name.lower().endswith(".pdf"):
-        await message.reply("❌ Only PDF files are accepted.")
+        await message.reply("❌ Only PDF files are allowed.")
         return
 
     timestamp = int(datetime.datetime.now().timestamp())
     save_path = os.path.join(SIGNED_DIR, f"{message.from_user.id}_{timestamp}.pdf")
+
     file = await bot.get_file(message.document.file_id)
     await file.download_to_drive(save_path)
 
     mark_agreement_accepted(message.from_user.id)
 
     await message.reply(
-        "✅ Signed agreement received successfully! You now have access:\n"
-        f"🔗 Naira Trader Registration: {NAIRA_TRADER_LINK}\n"
+        "Agreement received ✔️\nYou now have access:\n"
+        f"🔗 {NAIRA_TRADER_LINK}\n"
         f"👥 Private Group: {PRIVATE_GROUP_LINK}"
     )
 
     await bot.send_message(
         ADMIN_CHAT_ID,
-        f"📄 New signed agreement uploaded!\n"
-        f"User: @{message.from_user.username} ({message.from_user.id})\n"
-        f"File saved: {save_path}"
+        f"📄 New Agreement Uploaded\nUser: @{message.from_user.username}\nFile: {save_path}"
     )
 
-# ================== DUMMY WEB SERVER (RENDER FREE PLAN) ==================
+# ================== KORAPAY WEBHOOK ==================
+async def korapay_webhook(request):
+    try:
+        body = await request.json()
+        print("🔥 Incoming webhook:", body)
+
+        event = body.get("event")
+        data = body.get("data", {})
+        reference = data.get("reference")
+
+        if event == "charge.success":
+            print("✔️ Webhook Payment Success:", reference)
+
+        return web.Response(text="OK")
+
+    except Exception as e:
+        print("Webhook error:", e)
+        return web.Response(status=400, text="Webhook Error")
+
+# ================== RENDER WEB SERVER ==================
 async def handle(request):
-    return web.Response(text="🤖 MakeBankGuru Bot Running!")
+    return web.Response(text="MakeBankGuru Bot Running ✔️")
 
 async def start_webserver():
     app = web.Application()
-    app.add_routes([web.get('/', handle)])
+    app.add_routes([
+        web.get('/', handle),
+        web.post('/korapay-webhook', korapay_webhook)
+    ])
+
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    print(f"🌐 Webserver running on port {port}")
+    print(f"🌍 Webserver running on {port}")
 
-    # self-ping to stay awake
-    async def self_ping():
-        while True:
-            try:
-                async with aiohttp.ClientSession() as session:
-                    await session.get(f"http://localhost:{port}")
-            except Exception as e:
-                print("Ping error:", e)
-            await asyncio.sleep(600)
-
-    asyncio.create_task(self_ping())
-
-# ================== RUN BOT + WEB SERVER ==================
+# ================== MAIN ==================
 async def main():
     await start_webserver()
-    print("🤖 MakeBankGuru Verification Bot running...")
+    print("🤖 Telegram bot running...")
 
-    # Register handlers explicitly (Aiogram v3)
     dp.message.register(start_cmd, Command("start"))
     dp.callback_query.register(confirm_user, F.data == "confirm")
     dp.message.register(verify_cmd, Command("verify"))
@@ -164,4 +175,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
