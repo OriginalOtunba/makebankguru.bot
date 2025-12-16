@@ -2,250 +2,142 @@ import os
 import asyncio
 import aiohttp
 import datetime
-import sqlite3
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from dotenv import load_dotenv
 from aiohttp import web
 
+from database import (
+    init_db,
+    create_pending_payment,
+    mark_payment_paid,
+    mark_agreement_signed,
+    get_user_by_reference,
+    is_payment_paid
+)
+
 # ================== CONFIG ==================
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
-KORA_SECRET_KEY = os.getenv("KORA_SECRET_KEY")
-
 NAIRA_TRADER_LINK = os.getenv("NAIRA_TRADER_LINK")
 PRIVATE_GROUP_LINK = os.getenv("PRIVATE_GROUP_LINK")
 AGREEMENT_LINK = os.getenv("AGREEMENT_LINK")
 KORAPAY_PAYMENT_LINK = os.getenv("KORAPAY_PAYMENT_LINK")
 
-PORT = int(os.environ.get("PORT", 10000))
 SIGNED_DIR = "signed_agreements"
-DB_PATH = "payments.db"
 
-EXPECTED_AMOUNT = 20000
-CURRENCY = "NGN"
-
-# ================== INIT ==================
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+init_db()
 os.makedirs(SIGNED_DIR, exist_ok=True)
 
-# ================== DATABASE ==================
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS pending_payments (
-        user_id INTEGER,
-        username TEXT,
-        status TEXT,
-        created_at TEXT
-    )
-    """)
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS completed_payments (
-        user_id INTEGER,
-        reference TEXT,
-        amount REAL,
-        currency TEXT,
-        paid_at TEXT
-    )
-    """)
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS agreements (
-        user_id INTEGER,
-        file_path TEXT,
-        signed_at TEXT
-    )
-    """)
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS payment_anomalies (
-        reference TEXT,
-        payload TEXT,
-        logged_at TEXT
-    )
-    """)
-
-    conn.commit()
-    conn.close()
-
-init_db()
-
-# ================== HELPERS ==================
-def add_pending(user: types.User):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO pending_payments VALUES (?, ?, ?, ?)",
-        (user.id, user.username, "pending", datetime.datetime.utcnow().isoformat())
-    )
-    conn.commit()
-    conn.close()
-
-def mark_paid(user_id, reference, amount, currency):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-
-    c.execute(
-        "INSERT INTO completed_payments VALUES (?, ?, ?, ?, ?)",
-        (user_id, reference, amount, currency, datetime.datetime.utcnow().isoformat())
-    )
-
-    c.execute(
-        "UPDATE pending_payments SET status = 'paid' WHERE user_id = ?",
-        (user_id,)
-    )
-
-    conn.commit()
-    conn.close()
-
-def has_paid(user_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT 1 FROM completed_payments WHERE user_id = ?", (user_id,))
-    result = c.fetchone()
-    conn.close()
-    return result is not None
-
-def has_signed(user_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT 1 FROM agreements WHERE user_id = ?", (user_id,))
-    result = c.fetchone()
-    conn.close()
-    return result is not None
-
-def log_anomaly(reference, payload):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO payment_anomalies VALUES (?, ?, ?)",
-        (reference, str(payload), datetime.datetime.utcnow().isoformat())
-    )
-    conn.commit()
-    conn.close()
-
-# ================== BOT HANDLERS ==================
+# ================== START ==================
 @dp.message(Command("start"))
-async def start(message: types.Message):
+async def start_cmd(message: types.Message):
+    reference = f"MBG-{message.from_user.id}-{int(datetime.datetime.now().timestamp())}"
+
+    create_pending_payment(
+        telegram_id=message.from_user.id,
+        username=message.from_user.username or "N/A",
+        reference=reference
+    )
+
     kb = InlineKeyboardBuilder()
-    kb.button(text="💳 Activate Trading Support", callback_data="pay")
+    kb.button(text="💳 Pay ₦20,000", url=KORAPAY_PAYMENT_LINK)
 
     await message.answer(
-        "💸 *MakeBankGuru Trading Support*\n\n"
-        "Secure onboarding. Automated verification.\n\n"
-        "Click below to activate your support package.",
+        "👋 *Welcome to MakeBankGuru*\n\n"
+        "To activate your Trading Support Service:\n"
+        "1️⃣ Complete payment\n"
+        "2️⃣ Payment is auto-confirmed\n"
+        "3️⃣ Upload agreement\n\n"
+        "No manual verification required.",
         parse_mode="Markdown",
         reply_markup=kb.as_markup()
-    )
-
-@dp.callback_query(F.data == "pay")
-async def initiate_payment(callback: types.CallbackQuery):
-    add_pending(callback.from_user)
-
-    await callback.message.edit_text(
-        f"💳 *Payment Step*\n\n"
-        f"Service Fee: ₦{EXPECTED_AMOUNT}\n\n"
-        f"👉 [Pay via Korapay]({KORAPAY_PAYMENT_LINK})\n\n"
-        f"Once payment is completed, access will unlock automatically.",
-        parse_mode="Markdown"
     )
 
 # ================== AGREEMENT UPLOAD ==================
 @dp.message(F.document)
 async def receive_agreement(message: types.Message):
-    if not has_paid(message.from_user.id):
-        await message.reply("⚠️ Payment not yet confirmed.")
-        return
-
-    if has_signed(message.from_user.id):
-        await message.reply("✅ Agreement already received.")
+    if not is_payment_paid(message.from_user.id):
+        await message.reply("⚠️ Payment not confirmed yet.")
         return
 
     if not message.document.file_name.lower().endswith(".pdf"):
-        await message.reply("❌ PDF files only.")
+        await message.reply("❌ Only PDF agreements allowed.")
         return
 
-    timestamp = int(datetime.datetime.utcnow().timestamp())
-    path = f"{SIGNED_DIR}/{message.from_user.id}_{timestamp}.pdf"
+    timestamp = int(datetime.datetime.now().timestamp())
+    path = os.path.join(SIGNED_DIR, f"{message.from_user.id}_{timestamp}.pdf")
 
     file = await bot.get_file(message.document.file_id)
     await file.download_to_drive(path)
 
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO agreements VALUES (?, ?, ?)",
-        (message.from_user.id, path, datetime.datetime.utcnow().isoformat())
-    )
-    conn.commit()
-    conn.close()
+    mark_agreement_signed(message.from_user.id)
 
     await message.reply(
-        "✅ Agreement received.\n\n"
-        f"🔗 Naira Trader: {NAIRA_TRADER_LINK}\n"
-        f"👥 Private Group: {PRIVATE_GROUP_LINK}"
+        "✅ Agreement received!\n\n"
+        f"🔗 Register on Naira Trader:\n{NAIRA_TRADER_LINK}\n\n"
+        f"👥 Private Group:\n{PRIVATE_GROUP_LINK}"
     )
 
     await bot.send_message(
         ADMIN_CHAT_ID,
-        f"📄 Agreement uploaded by @{message.from_user.username}\nFile: {path}"
+        f"📄 Agreement uploaded\nUser: @{message.from_user.username}\nFile: {path}"
     )
 
 # ================== KORAPAY WEBHOOK ==================
 async def korapay_webhook(request):
-    payload = await request.json()
-    event = payload.get("event")
-    data = payload.get("data", {})
+    body = await request.json()
+    print("🔥 Webhook:", body)
 
-    reference = data.get("reference")
-    amount = data.get("amount")
-    currency = data.get("currency")
-
-    if event != "charge.success":
+    if body.get("event") != "charge.success":
         return web.Response(text="ignored")
 
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT user_id FROM pending_payments WHERE status='pending' ORDER BY created_at DESC LIMIT 1")
-    row = c.fetchone()
-    conn.close()
+    data = body["data"]
+    reference = data.get("reference")
+    amount = float(data.get("amount", 0))
 
-    if not row or currency != CURRENCY or amount < EXPECTED_AMOUNT:
-        log_anomaly(reference, payload)
-        return web.Response(text="logged")
+    if amount < 20000:
+        print("❌ Amount too low")
+        return web.Response(text="invalid amount")
 
-    user_id = row[0]
-    mark_paid(user_id, reference, amount, currency)
+    user = get_user_by_reference(reference)
+    if not user:
+        print("⚠️ Reference not found:", reference)
+        return web.Response(text="reference not found")
+
+    mark_payment_paid(reference)
 
     await bot.send_message(
-        user_id,
-        "🎉 Payment confirmed!\n\n"
-        "Please upload your signed service agreement PDF to continue.\n"
-        f"🧾 {AGREEMENT_LINK}"
+        user["telegram_id"],
+        "✅ *Payment confirmed automatically!*\n\n"
+        "Please upload your signed service agreement PDF to continue.",
+        parse_mode="Markdown"
     )
 
     return web.Response(text="ok")
 
 # ================== WEB SERVER ==================
+async def handle(request):
+    return web.Response(text="MakeBankGuru Bot Running ✔️")
+
 async def start_webserver():
     app = web.Application()
     app.add_routes([
-        web.get("/", lambda r: web.Response(text="Bot Alive")),
+        web.get("/", handle),
         web.post("/korapay-webhook", korapay_webhook)
     ])
 
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
+    print(f"🌍 Webserver running on port {port}")
 
 # ================== MAIN ==================
 async def main():
