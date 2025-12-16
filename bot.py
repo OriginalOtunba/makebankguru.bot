@@ -120,8 +120,10 @@ async def verify_cmd(message: types.Message):
         await message.reply("❌ Payment not found or pending. Try again shortly.")
 
 async def receive_signed_pdf(message: types.Message):
+    print("📄 PDF handler triggered")
+
     if not is_verified(message.from_user.id):
-        await message.reply("You must verify your payment first.")
+        await message.reply("❌ You must verify your payment first.")
         return
 
     if not message.document.file_name.lower().endswith(".pdf"):
@@ -132,20 +134,24 @@ async def receive_signed_pdf(message: types.Message):
     save_path = os.path.join(SIGNED_DIR, f"{message.from_user.id}_{timestamp}.pdf")
 
     file = await bot.get_file(message.document.file_id)
-    await file.download_to_drive(save_path)
+    await bot.download_file(file.file_path, save_path)
 
     mark_agreement_accepted(message.from_user.id)
 
     await message.reply(
-        "Agreement received ✔️\nYou now have access:\n"
+        "✅ Agreement received.\n\n"
+        "You now have access:\n"
         f"🔗 {NAIRA_TRADER_LINK}\n"
         f"👥 Private Group: {PRIVATE_GROUP_LINK}"
     )
 
     await bot.send_message(
         ADMIN_CHAT_ID,
-        f"📄 New Agreement Uploaded\nUser: @{message.from_user.username}\nFile: {save_path}"
+        f"📄 New Agreement Uploaded\n"
+        f"User: @{message.from_user.username}\n"
+        f"File saved: {save_path}"
     )
+
 
 # ================== KORAPAY WEBHOOK ==================
 async def korapay_webhook(request):
@@ -204,6 +210,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
