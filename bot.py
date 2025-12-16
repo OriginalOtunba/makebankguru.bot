@@ -153,18 +153,24 @@ async def korapay_webhook(request):
         body = await request.json()
         print("🔥 Incoming webhook:", body)
 
-        event = body.get("event")
+        if body.get("event") != "charge.success":
+            return web.Response(text="Ignored")
+
         data = body.get("data", {})
         reference = data.get("reference")
+        amount = data.get("amount")
+        currency = data.get("currency")
 
-        if event == "charge.success":
-            print("✔️ Webhook Payment Success:", reference)
+        if currency == "NGN" and float(amount) >= 20000:
+            # TODO: map reference → telegram user
+            print("✔️ Payment confirmed via webhook:", reference)
 
         return web.Response(text="OK")
 
     except Exception as e:
         print("Webhook error:", e)
         return web.Response(status=400, text="Webhook Error")
+
 
 # ================== RENDER WEB SERVER ==================
 async def handle(request):
@@ -198,6 +204,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
