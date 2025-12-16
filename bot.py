@@ -36,8 +36,16 @@ async def verify_payment(reference: str) -> bool:
         async with session.get(VERIFY_ENDPOINT.format(reference=reference), headers=headers) as resp:
             data = await resp.json()
             if data.get("status") and data["data"].get("status") == "success":
-                if data["data"].get("amount_paid") == 20279.5 and data["data"].get("currency") == "NGN":
-                    return True
+            amount = data["data"].get("amount") or data["data"].get("amount_paid")
+
+if (
+    data.get("status") 
+    and data["data"].get("status") == "success"
+    and data["data"].get("currency") == "NGN"
+    and float(amount) >= 20000
+):
+    return True
+
     return False
 
 # ================== TELEGRAM HANDLERS ==================
@@ -175,4 +183,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
