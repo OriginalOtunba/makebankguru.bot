@@ -31,16 +31,37 @@ os.makedirs(SIGNED_DIR, exist_ok=True)
 
 # ================== PAYMENT VERIFICATION ==================
 async def verify_payment(reference: str) -> bool:
-    headers = {"Authorization": f"Bearer {KORA_SECRET_KEY}"}
+    headers = {
+        "Authorization": f"Bearer {KORA_SECRET_KEY}",
+        "Content-Type": "application/json"
+    }
+
     async with aiohttp.ClientSession() as session:
-        async with session.get(VERIFY_ENDPOINT.format(reference=reference), headers=headers) as resp:
+        async with session.get(
+            VERIFY_ENDPOINT.format(reference=reference),
+            headers=headers
+        ) as resp:
             data = await resp.json()
-            if data.get("status") and data["data"].get("status") == "success":
-            amount = data["data"].get("amount") or data["data"].get("amount_paid")
-            if (data.get("status") and data["data"].get("status") == "success" and data["data"].get("currency") == "NGN"and float(amount) >= 20000 ):
-    return True
+            print("🔎 Korapay verify response:", data)
+
+            if not data.get("status"):
+                return False
+
+            payment = data.get("data", {})
+            status = payment.get("status")
+            currency = payment.get("currency")
+            amount = payment.get("amount") or payment.get("amount_paid")
+
+            if (
+                status == "success"
+                and currency == "NGN"
+                and amount
+                and float(amount) >= 20000
+            ):
+                return True
 
     return False
+
 
 # ================== TELEGRAM HANDLERS ==================
 async def start_cmd(message: types.Message):
@@ -177,6 +198,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
