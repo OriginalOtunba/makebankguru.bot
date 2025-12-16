@@ -3,82 +3,38 @@ import datetime
 
 DB_PATH = "users.db"
 
-# Initialize database
-def init_db():
+# Ensure table for pending payments exists
+def init_pending_payments_table():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("""
-        CREATE TABLE IF NOT EXISTS verified_users (
-            user_id INTEGER PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS pending_payments (
+            payment_ref TEXT PRIMARY KEY,
+            user_id INTEGER,
             username TEXT,
-            payment_ref TEXT,
-            date_verified TEXT,
-            agreement_accepted INTEGER DEFAULT 0,
-            date_agreement_accepted TEXT
+            amount REAL,
+            status TEXT DEFAULT 'pending', -- pending, verified, failed
+            date_created TEXT
         )
     """)
     conn.commit()
     conn.close()
 
-# Add or update a user after successful webhook payment
-def unlock_user(user_id, username, payment_ref):
+# Create a pending payment before Korapay confirms it
+def create_pending_payment(user_id, username, payment_ref, amount):
     now = datetime.datetime.now().isoformat()
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("""
-        INSERT INTO verified_users (user_id, username, payment_ref, date_verified)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET
+        INSERT INTO pending_payments (payment_ref, user_id, username, amount, status, date_created)
+        VALUES (?, ?, ?, ?, 'pending', ?)
+        ON CONFLICT(payment_ref) DO UPDATE SET
+            user_id = excluded.user_id,
             username = excluded.username,
-            payment_ref = excluded.payment_ref,
-            date_verified = excluded.date_verified
-    """, (user_id, username, payment_ref, now))
+            amount = excluded.amount,
+            status = 'pending',
+            date_created = excluded.date_created
+    """, (payment_ref, user_id, username, amount, now))
     conn.commit()
     conn.close()
-    print(f"User {user_id} unlocked at {now}")
-
-# Mark agreement as accepted
-def accept_agreement(user_id):
-    now = datetime.datetime.now().isoformat()
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        UPDATE verified_users
-        SET agreement_accepted = 1,
-            date_agreement_accepted = ?
-        WHERE user_id = ?
-    """, (now, user_id))
-    conn.commit()
-    conn.close()
-    print(f"User {user_id} accepted agreement at {now}")
-
-# Check if user is verified (payment received)
-def is_verified(user_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT 1 FROM verified_users WHERE user_id=?", (user_id,))
-    exists = c.fetchone() is not None
-    conn.close()
-    return exists
-
-# Check if user has accepted agreement
-def has_accepted_agreement(user_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT agreement_accepted FROM verified_users WHERE user_id=?", (user_id,))
-    row = c.fetchone()
-    conn.close()
-    return row and row[0] == 1
-
-# Retrieve user info for auditing
-def get_user_info(user_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        SELECT user_id, username, payment_ref, date_verified, agreement_accepted, date_agreement_accepted
-        FROM verified_users
-        WHERE user_id=?
-    """, (user_id,))
-    row = c.fetchone()
-    conn.close()
-    return row
+    print(f"Pending payment created for user {user_id} with ref {payment_ref}")
