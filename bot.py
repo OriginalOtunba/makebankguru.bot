@@ -37,13 +37,7 @@ async def verify_payment(reference: str) -> bool:
             data = await resp.json()
             if data.get("status") and data["data"].get("status") == "success":
             amount = data["data"].get("amount") or data["data"].get("amount_paid")
-
-if (
-    data.get("status") 
-    and data["data"].get("status") == "success"
-    and data["data"].get("currency") == "NGN"
-    and float(amount) >= 20000
-):
+            if (data.get("status") and data["data"].get("status") == "success" and data["data"].get("currency") == "NGN"and float(amount) >= 20000 ):
     return True
 
     return False
@@ -183,5 +177,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
