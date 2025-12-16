@@ -3,7 +3,7 @@ import datetime
 
 DB_PATH = "users.db"
 
-# Initialize the database
+# Initialize database
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -20,20 +20,26 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Add a new user (or update if exists)
-def add_user(user_id, username, payment_ref):
+# Add or update a user after successful webhook payment
+def unlock_user(user_id, username, payment_ref):
+    now = datetime.datetime.now().isoformat()
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("""
-        INSERT OR REPLACE INTO verified_users
-        (user_id, username, payment_ref, date_verified, agreement_accepted, date_agreement_accepted)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (user_id, username, payment_ref, datetime.datetime.now().isoformat(), 0, None))
+        INSERT INTO verified_users (user_id, username, payment_ref, date_verified)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            username = excluded.username,
+            payment_ref = excluded.payment_ref,
+            date_verified = excluded.date_verified
+    """, (user_id, username, payment_ref, now))
     conn.commit()
     conn.close()
+    print(f"User {user_id} unlocked at {now}")
 
-# Mark agreement as accepted with timestamp
-def mark_agreement_accepted(user_id):
+# Mark agreement as accepted
+def accept_agreement(user_id):
+    now = datetime.datetime.now().isoformat()
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("""
@@ -41,15 +47,16 @@ def mark_agreement_accepted(user_id):
         SET agreement_accepted = 1,
             date_agreement_accepted = ?
         WHERE user_id = ?
-    """, (datetime.datetime.now().isoformat(), user_id))
+    """, (now, user_id))
     conn.commit()
     conn.close()
+    print(f"User {user_id} accepted agreement at {now}")
 
-# Check if user has verified payment
+# Check if user is verified (payment received)
 def is_verified(user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT user_id FROM verified_users WHERE user_id=?", (user_id,))
+    c.execute("SELECT 1 FROM verified_users WHERE user_id=?", (user_id,))
     exists = c.fetchone() is not None
     conn.close()
     return exists
@@ -63,7 +70,7 @@ def has_accepted_agreement(user_id):
     conn.close()
     return row and row[0] == 1
 
-# Retrieve full user info for auditing
+# Retrieve user info for auditing
 def get_user_info(user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
