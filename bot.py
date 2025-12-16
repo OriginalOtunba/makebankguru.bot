@@ -110,6 +110,7 @@ async def verify_cmd(message: types.Message):
 
     ok = await verify_payment(reference)
     if ok:
+        add_user(telegram_id, username, reference)
         add_user(message.from_user.id, message.from_user.username or "N/A", reference)
         await message.reply(
             f"🎉 Payment confirmed!\n\nUpload your signed agreement PDF:\n"
@@ -204,12 +205,14 @@ async def main():
     dp.message.register(start_cmd, Command("start"))
     dp.callback_query.register(confirm_user, F.data == "confirm")
     dp.message.register(verify_cmd, Command("verify"))
-    dp.message.register(receive_signed_pdf, F.document)
+    dp.message.register(receive_signed_pdf, F.document & ~F.text)
+
 
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
