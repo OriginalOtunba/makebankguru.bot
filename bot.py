@@ -135,7 +135,7 @@ async def receive_signed_pdf(message: types.Message):
     save_path = os.path.join(SIGNED_DIR, f"{message.from_user.id}_{timestamp}.pdf")
 
     file = await bot.get_file(message.document.file_id)
-    await bot.download_file(file.file_path, save_path)
+await bot.download_file(file.file_path, save_path)
 
     mark_agreement_accepted(message.from_user.id)
 
@@ -212,6 +212,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
