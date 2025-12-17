@@ -6,6 +6,7 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from dotenv import load_dotenv
 from aiohttp import web
+from urllib.parse import quote_plus
 
 from database import (
     init_db,
@@ -25,7 +26,7 @@ ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
 NAIRA_TRADER_LINK = os.getenv("NAIRA_TRADER_LINK")
 PRIVATE_GROUP_LINK = os.getenv("PRIVATE_GROUP_LINK")
 AGREEMENT_LINK = os.getenv("AGREEMENT_LINK")
-KORAPAY_PAYMENT_LINK = os.getenv("KORAPAY_PAYMENT_LINK")
+KORAPAY_BASE_LINK = os.getenv("KORAPAY_PAYMENT_LINK")  # Base link without reference
 
 SIGNED_DIR = ensure_signed_dir("signed_agreements")
 
@@ -36,16 +37,23 @@ init_db()
 # ================== START COMMAND ==================
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
-    reference = f"MBG-{message.from_user.id}-{int(datetime.datetime.now().timestamp())}"
+    telegram_id = message.from_user.id
+    username = message.from_user.username or "N/A"
+    timestamp = int(datetime.datetime.now().timestamp())
+    reference = f"MBG-{telegram_id}-{timestamp}"
 
+    # 1️⃣ Store pending payment in DB
     create_pending_payment(
-        telegram_id=message.from_user.id,
-        username=message.from_user.username or "N/A",
+        telegram_id=telegram_id,
+        username=username,
         reference=reference
     )
 
+    # 2️⃣ Build Korapay payment link with your reference
+    korapay_link = f"{KORAPAY_BASE_LINK}?amount=20000&reference={quote_plus(reference)}"
+
     kb = InlineKeyboardBuilder()
-    kb.button(text="💳 Pay ₦20,000", url=KORAPAY_PAYMENT_LINK)
+    kb.button(text="💳 Pay ₦20,000", url=korapay_link)
 
     await message.answer(
         "👋 *Welcome to MakeBankGuru*\n\n"
@@ -63,17 +71,14 @@ async def start_cmd(message: types.Message):
 async def receive_agreement(message: types.Message):
     telegram_id = message.from_user.id
 
-    # 1️⃣ Check if payment is confirmed
     if not is_payment_paid(telegram_id):
         await message.reply("⚠️ Payment not confirmed yet. Please complete payment first.")
         return
 
-    # 2️⃣ Check file type
     if not message.document.file_name.lower().endswith(".pdf"):
         await message.reply("❌ Only PDF agreements are allowed.")
         return
 
-    # 3️⃣ Save the PDF locally
     timestamp = int(datetime.datetime.now().timestamp())
     file_name = f"{telegram_id}_{timestamp}.pdf"
     file_path = os.path.join(SIGNED_DIR, file_name)
@@ -81,17 +86,14 @@ async def receive_agreement(message: types.Message):
     # Correct Aiogram v3 download
     await message.document.download(destination_file=file_path)
 
-    # 4️⃣ Mark agreement as signed in DB
     mark_agreement_signed(telegram_id)
 
-    # 5️⃣ Send confirmation to user
     await message.reply(
         "✅ Agreement received successfully!\n\n"
         f"🔗 Register on Naira Trader:\n{NAIRA_TRADER_LINK}\n\n"
         f"👥 Join our private group:\n{PRIVATE_GROUP_LINK}"
     )
 
-    # 6️⃣ Notify admin
     await bot.send_message(
         ADMIN_CHAT_ID,
         f"📄 New agreement uploaded\n"
@@ -108,14 +110,14 @@ async def korapay_webhook(request):
         print("⚠️ Failed to parse webhook:", e)
         return web.Response(text="bad request", status=400)
 
-    # Only process successful charges
     if body.get("event") != "charge.success":
         return web.Response(text="ignored")
 
     data = body.get("data", {})
-    reference = data.get("reference")
+    reference = data.get("reference")  # Your MBG- reference
     amount = float(data.get("amount", 0))
 
+    # Optional: Adjust if amount is in kobo
     if amount < 20000:
         print("❌ Amount too low:", amount)
         return web.Response(text="invalid amount")
@@ -125,8 +127,10 @@ async def korapay_webhook(request):
         print("⚠️ Reference not found:", reference)
         return web.Response(text="reference not found")
 
+    # Update DB first
     mark_payment_paid(reference)
-    
+
+    # Fetch updated user to ensure payment status is 'paid'
     user = get_user_by_reference(reference)
 
     await bot.send_message(
@@ -163,4 +167,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
