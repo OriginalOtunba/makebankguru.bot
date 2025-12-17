@@ -1,6 +1,5 @@
 import os
 import asyncio
-import aiohttp
 import datetime
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -14,7 +13,8 @@ from database import (
     mark_payment_paid,
     mark_agreement_signed,
     get_user_by_reference,
-    is_payment_paid
+    is_payment_paid,
+    ensure_signed_dir
 )
 
 # ================== CONFIG ==================
@@ -27,14 +27,13 @@ PRIVATE_GROUP_LINK = os.getenv("PRIVATE_GROUP_LINK")
 AGREEMENT_LINK = os.getenv("AGREEMENT_LINK")
 KORAPAY_PAYMENT_LINK = os.getenv("KORAPAY_PAYMENT_LINK")
 
-SIGNED_DIR = "signed_agreements"
+SIGNED_DIR = ensure_signed_dir("signed_agreements")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 init_db()
-os.makedirs(SIGNED_DIR, exist_ok=True)
 
-# ================== START ==================
+# ================== START COMMAND ==================
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     reference = f"MBG-{message.from_user.id}-{int(datetime.datetime.now().timestamp())}"
@@ -62,47 +61,63 @@ async def start_cmd(message: types.Message):
 # ================== AGREEMENT UPLOAD ==================
 @dp.message(F.document)
 async def receive_agreement(message: types.Message):
-    if not is_payment_paid(message.from_user.id):
-        await message.reply("⚠️ Payment not confirmed yet.")
+    telegram_id = message.from_user.id
+
+    # 1️⃣ Check if payment is confirmed
+    if not is_payment_paid(telegram_id):
+        await message.reply("⚠️ Payment not confirmed yet. Please complete payment first.")
         return
 
+    # 2️⃣ Check file type
     if not message.document.file_name.lower().endswith(".pdf"):
-        await message.reply("❌ Only PDF agreements allowed.")
+        await message.reply("❌ Only PDF agreements are allowed.")
         return
 
+    # 3️⃣ Save the PDF locally
     timestamp = int(datetime.datetime.now().timestamp())
-    path = os.path.join(SIGNED_DIR, f"{message.from_user.id}_{timestamp}.pdf")
+    file_name = f"{telegram_id}_{timestamp}.pdf"
+    file_path = os.path.join(SIGNED_DIR, file_name)
 
-    file = await bot.get_file(message.document.file_id)
-    await file.download_to_drive(path)
+    # Correct Aiogram v3 download
+    await message.document.download(destination_file=file_path)
 
-    mark_agreement_signed(message.from_user.id)
+    # 4️⃣ Mark agreement as signed in DB
+    mark_agreement_signed(telegram_id)
 
+    # 5️⃣ Send confirmation to user
     await message.reply(
-        "✅ Agreement received!\n\n"
+        "✅ Agreement received successfully!\n\n"
         f"🔗 Register on Naira Trader:\n{NAIRA_TRADER_LINK}\n\n"
-        f"👥 Private Group:\n{PRIVATE_GROUP_LINK}"
+        f"👥 Join our private group:\n{PRIVATE_GROUP_LINK}"
     )
 
+    # 6️⃣ Notify admin
     await bot.send_message(
         ADMIN_CHAT_ID,
-        f"📄 Agreement uploaded\nUser: @{message.from_user.username}\nFile: {path}"
+        f"📄 New agreement uploaded\n"
+        f"User: @{message.from_user.username or 'N/A'}\n"
+        f"File: {file_path}"
     )
 
 # ================== KORAPAY WEBHOOK ==================
 async def korapay_webhook(request):
-    body = await request.json()
-    print("🔥 Webhook:", body)
+    try:
+        body = await request.json()
+        print("🔥 Webhook received:", body)
+    except Exception as e:
+        print("⚠️ Failed to parse webhook:", e)
+        return web.Response(text="bad request", status=400)
 
+    # Only process successful charges
     if body.get("event") != "charge.success":
         return web.Response(text="ignored")
 
-    data = body["data"]
+    data = body.get("data", {})
     reference = data.get("reference")
     amount = float(data.get("amount", 0))
 
     if amount < 20000:
-        print("❌ Amount too low")
+        print("❌ Amount too low:", amount)
         return web.Response(text="invalid amount")
 
     user = get_user_by_reference(reference)
@@ -122,13 +137,13 @@ async def korapay_webhook(request):
     return web.Response(text="ok")
 
 # ================== WEB SERVER ==================
-async def handle(request):
+async def handle_root(request):
     return web.Response(text="MakeBankGuru Bot Running ✔️")
 
 async def start_webserver():
     app = web.Application()
     app.add_routes([
-        web.get("/", handle),
+        web.get("/", handle_root),
         web.post("/korapay-webhook", korapay_webhook)
     ])
 
