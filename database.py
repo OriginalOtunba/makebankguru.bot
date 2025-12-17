@@ -1,5 +1,6 @@
 import sqlite3
 import datetime
+import os
 
 DB_PATH = "users.db"
 
@@ -8,7 +9,7 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # Verified users / agreements
+    # Table for verified users and agreements
     c.execute("""
         CREATE TABLE IF NOT EXISTS verified_users (
             telegram_id INTEGER PRIMARY KEY,
@@ -21,14 +22,14 @@ def init_db():
         )
     """)
 
-    # Pending payments for tracking
+    # Table for pending payments tracking
     c.execute("""
         CREATE TABLE IF NOT EXISTS pending_payments (
             payment_reference TEXT PRIMARY KEY,
             telegram_id INTEGER,
             username TEXT,
             amount REAL DEFAULT 20000,
-            status TEXT DEFAULT 'pending',
+            status TEXT DEFAULT 'pending', -- pending, paid
             date_created TEXT
         )
     """)
@@ -132,3 +133,10 @@ def is_payment_paid(telegram_id: int):
     row = c.fetchone()
     conn.close()
     return row and row[0] == "paid"
+
+
+# ================== PDF HANDLER SUPPORT ==================
+# This helper ensures the folder for signed agreements exists
+def ensure_signed_dir(directory="signed_agreements"):
+    os.makedirs(directory, exist_ok=True)
+    return directory
