@@ -114,7 +114,7 @@ async def korapay_webhook(request):
         return web.Response(text="ignored")
 
     data = body.get("data", {})
-    reference = data.get("reference")  # Your MBG- reference
+    reference = data.get("reference") or data.get("payment_reference")  # Your MBG- reference
     amount = float(data.get("amount", 0))
 
     # Optional: Adjust if amount is in kobo
@@ -167,3 +167,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
