@@ -14,6 +14,7 @@ from database import (
     mark_payment_paid,
     mark_agreement_signed,
     get_user_by_reference,
+    get_user_by_korapay_reference,
     is_payment_paid,
     ensure_signed_dir
 )
@@ -167,25 +168,38 @@ async def korapay_webhook(request):
         return web.Response(text="ignored")
 
     data = body.get("data", {})
-    reference = data.get("reference") or data.get("payment_reference")
+    korapay_reference = data.get("reference") or data.get("payment_reference")
     amount = float(data.get("amount", 0))
 
-    print(f"💰 Payment - Reference: {reference}, Amount: {amount}")
+    print(f"💰 Payment - Korapay Reference: {korapay_reference}, Amount: {amount}")
 
-    # Validate amount (adjust if in kobo)
+    # Validate amount
     if amount < 20000:
         print(f"❌ Amount too low: {amount}")
         return web.Response(text="invalid amount")
 
-    # Check if user exists
-    user = get_user_by_reference(reference)
+    # Find user by Korapay reference
+    user = get_user_by_korapay_reference(korapay_reference)
+    
+    # If not found, try to match by timing (last pending payment)
     if not user:
-        print(f"⚠️ Reference not found: {reference}")
-        return web.Response(text="reference not found")
+        print(f"⚠️ No direct match for Korapay ref: {korapay_reference}")
+        print("🔍 Attempting to match by recent pending payment...")
+        
+        # This is a fallback - matches the most recent pending payment
+        from database import get_most_recent_pending_payment
+        user = get_most_recent_pending_payment()
+        
+        if user:
+            print(f"✅ Matched to recent pending payment: User {user['telegram_id']}")
 
-    # Mark payment as paid
-    mark_payment_paid(reference)
-    print(f"✅ Payment marked as paid for reference: {reference}")
+    if not user:
+        print(f"❌ Could not match payment to any user")
+        return web.Response(text="user not found")
+
+    # Mark payment as paid with Korapay reference
+    mark_payment_paid(korapay_reference, user.get("payment_reference"))
+    print(f"✅ Payment marked as paid for user: {user['telegram_id']}")
 
     # Notify user
     try:
