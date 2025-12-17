@@ -3,74 +3,79 @@ import datetime
 import os
 
 DB_PATH = "users.db"
+SIGNED_DIR = "signed_agreements"
 
-# ================== DATABASE INITIALIZATION ==================
+
+# ================== DATABASE INIT ==================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # Table for verified users and agreements
+    # Table for pending payments
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS pending_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER UNIQUE,
+            username TEXT,
+            payment_reference TEXT UNIQUE,
+            status TEXT DEFAULT 'pending',
+            date_created TEXT
+        )
+    """)
+
+    # Table for verified users
     c.execute("""
         CREATE TABLE IF NOT EXISTS verified_users (
             telegram_id INTEGER PRIMARY KEY,
             username TEXT,
             payment_reference TEXT,
-            payment_status TEXT DEFAULT 'pending', -- pending, paid
+            payment_status TEXT DEFAULT 'pending',
             date_payment_verified TEXT,
             agreement_signed INTEGER DEFAULT 0,
             date_agreement_signed TEXT
         )
     """)
 
-    # Table for pending payments tracking
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS pending_payments (
-            payment_reference TEXT PRIMARY KEY,
-            telegram_id INTEGER,
-            username TEXT,
-            amount REAL DEFAULT 20000,
-            status TEXT DEFAULT 'pending', -- pending, paid
-            date_created TEXT
-        )
-    """)
-
     conn.commit()
     conn.close()
 
 
-# ================== PENDING PAYMENTS ==================
-def create_pending_payment(telegram_id: int, username: str, reference: str, amount: float = 20000):
+# ================== DIRECTORY ==================
+def ensure_signed_dir(path):
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+# ================== CREATE PENDING PAYMENT ==================
+def create_pending_payment(telegram_id: int, username: str, reference: str):
     now = datetime.datetime.now().isoformat()
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+
     c.execute("""
-        INSERT INTO pending_payments (payment_reference, telegram_id, username, amount, status, date_created)
-        VALUES (?, ?, ?, ?, 'pending', ?)
-        ON CONFLICT(payment_reference) DO UPDATE SET
-            telegram_id=excluded.telegram_id,
-            username=excluded.username,
-            amount=excluded.amount,
-            status='pending',
-            date_created=excluded.date_created
-    """, (reference, telegram_id, username, amount, now))
+        INSERT OR REPLACE INTO pending_payments
+        (telegram_id, username, payment_reference, date_created)
+        VALUES (?, ?, ?, ?)
+    """, (telegram_id, username, reference, now))
+
     conn.commit()
     conn.close()
 
 
-# ================== PAYMENT CONFIRMATION ==================
+# ================== MARK PAYMENT PAID ==================
 def mark_payment_paid(reference: str):
     now = datetime.datetime.now().isoformat()
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # 1️⃣ Update pending payment
+    # Update pending payments
     c.execute("""
         UPDATE pending_payments
         SET status='paid'
         WHERE payment_reference=?
     """, (reference,))
 
-    # 2️⃣ Upsert into verified_users
+    # Insert or update verified_users
     c.execute("""
         INSERT INTO verified_users (telegram_id, username, payment_reference, payment_status, date_payment_verified)
         SELECT telegram_id, username, payment_reference, 'paid', ?
@@ -86,45 +91,25 @@ def mark_payment_paid(reference: str):
     conn.close()
 
 
-
-# ================== AGREEMENT SIGNING ==================
+# ================== MARK AGREEMENT SIGNED ==================
 def mark_agreement_signed(telegram_id: int):
     now = datetime.datetime.now().isoformat()
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+
     c.execute("""
         UPDATE verified_users
-        SET agreement_signed = 1,
-            date_agreement_signed = ?
-        WHERE telegram_id = ?
+        SET agreement_signed=1,
+            date_agreement_signed=?
+        WHERE telegram_id=?
     """, (now, telegram_id))
+
     conn.commit()
     conn.close()
 
 
-# ================== QUERY HELPERS ==================
-def get_user_by_reference(reference: str):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        SELECT telegram_id, username, payment_reference, payment_status, agreement_signed
-        FROM verified_users
-        WHERE payment_reference=?
-    """, (reference,))
-    row = c.fetchone()
-    conn.close()
-    if row:
-        return {
-            "telegram_id": row[0],
-            "username": row[1],
-            "payment_reference": row[2],
-            "payment_status": row[3],
-            "agreement_signed": row[4]
-        }
-    return None
-
-
-def is_payment_paid(telegram_id: int):
+# ================== CHECK PAYMENT STATUS ==================
+def is_payment_paid(telegram_id: int) -> bool:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("""
@@ -132,12 +117,28 @@ def is_payment_paid(telegram_id: int):
     """, (telegram_id,))
     row = c.fetchone()
     conn.close()
-    return row and row[0] == "paid"
+    return row is not None and row[0] == "paid"
 
 
-# ================== PDF HANDLER SUPPORT ==================
-# This helper ensures the folder for signed agreements exists
-def ensure_signed_dir(directory="signed_agreements"):
-    os.makedirs(directory, exist_ok=True)
-    return directory
+# ================== GET USER BY REFERENCE ==================
+def get_user_by_reference(reference: str):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        SELECT telegram_id, username, payment_reference, payment_status, agreement_signed, date_agreement_signed
+        FROM verified_users
+        WHERE payment_reference=?
+    """, (reference,))
+    row = c.fetchone()
+    conn.close()
 
+    if row:
+        return {
+            "telegram_id": row[0],
+            "username": row[1],
+            "payment_reference": row[2],
+            "payment_status": row[3],
+            "agreement_signed": row[4],
+            "date_agreement_signed": row[5]
+        }
+    return None
