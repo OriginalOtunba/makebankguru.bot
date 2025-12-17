@@ -26,7 +26,7 @@ ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
 NAIRA_TRADER_LINK = os.getenv("NAIRA_TRADER_LINK")
 PRIVATE_GROUP_LINK = os.getenv("PRIVATE_GROUP_LINK")
 AGREEMENT_LINK = os.getenv("AGREEMENT_LINK")
-KORAPAY_BASE_LINK = os.getenv("KORAPAY_PAYMENT_LINK")  # Base link without reference
+KORAPAY_BASE_LINK = os.getenv("KORAPAY_PAYMENT_LINK")
 
 SIGNED_DIR = ensure_signed_dir("signed_agreements")
 
@@ -42,14 +42,14 @@ async def start_cmd(message: types.Message):
     timestamp = int(datetime.datetime.now().timestamp())
     reference = f"MBG-{telegram_id}-{timestamp}"
 
-    # 1️⃣ Store pending payment in DB
+    # Store pending payment in DB
     create_pending_payment(
         telegram_id=telegram_id,
         username=username,
         reference=reference
     )
 
-    # 2️⃣ Build Korapay payment link with your reference
+    # Build Korapay payment link
     korapay_link = f"{KORAPAY_BASE_LINK}?amount=20000&reference={quote_plus(reference)}"
 
     kb = InlineKeyboardBuilder()
@@ -71,35 +71,47 @@ async def start_cmd(message: types.Message):
 async def receive_agreement(message: types.Message):
     telegram_id = message.from_user.id
 
+    # Check payment status
     if not is_payment_paid(telegram_id):
         await message.reply("⚠️ Payment not confirmed yet. Please complete payment first.")
         return
 
+    # Validate PDF
     if not message.document.file_name.lower().endswith(".pdf"):
         await message.reply("❌ Only PDF agreements are allowed.")
         return
 
-    timestamp = int(datetime.datetime.now().timestamp())
-    file_name = f"{telegram_id}_{timestamp}.pdf"
-    file_path = os.path.join(SIGNED_DIR, file_name)
+    try:
+        # Download file (FIXED for Aiogram 3.x)
+        timestamp = int(datetime.datetime.now().timestamp())
+        file_name = f"{telegram_id}_{timestamp}.pdf"
+        file_path = os.path.join(SIGNED_DIR, file_name)
 
-    # Correct Aiogram v3 download
-    await message.document.download(destination_file=file_path)
+        # Correct method for Aiogram 3.x
+        file = await bot.get_file(message.document.file_id)
+        await bot.download_file(file.file_path, file_path)
 
-    mark_agreement_signed(telegram_id)
+        # Mark as signed
+        mark_agreement_signed(telegram_id)
 
-    await message.reply(
-        "✅ Agreement received successfully!\n\n"
-        f"🔗 Register on Naira Trader:\n{NAIRA_TRADER_LINK}\n\n"
-        f"👥 Join our private group:\n{PRIVATE_GROUP_LINK}"
-    )
+        await message.reply(
+            "✅ Agreement received successfully!\n\n"
+            f"🔗 Register on Naira Trader:\n{NAIRA_TRADER_LINK}\n\n"
+            f"👥 Join our private group:\n{PRIVATE_GROUP_LINK}"
+        )
 
-    await bot.send_message(
-        ADMIN_CHAT_ID,
-        f"📄 New agreement uploaded\n"
-        f"User: @{message.from_user.username or 'N/A'}\n"
-        f"File: {file_path}"
-    )
+        # Notify admin
+        await bot.send_message(
+            ADMIN_CHAT_ID,
+            f"📄 New agreement uploaded\n"
+            f"User: @{message.from_user.username or 'N/A'}\n"
+            f"Telegram ID: {telegram_id}\n"
+            f"File: {file_path}"
+        )
+
+    except Exception as e:
+        print(f"❌ Error downloading agreement: {e}")
+        await message.reply("❌ Failed to process agreement. Please try again.")
 
 # ================== KORAPAY WEBHOOK ==================
 async def korapay_webhook(request):
@@ -107,38 +119,45 @@ async def korapay_webhook(request):
         body = await request.json()
         print("🔥 Webhook received:", body)
     except Exception as e:
-        print("⚠️ Failed to parse webhook:", e)
+        print(f"⚠️ Failed to parse webhook: {e}")
         return web.Response(text="bad request", status=400)
 
+    # Validate event type
     if body.get("event") != "charge.success":
+        print(f"⚠️ Ignored event: {body.get('event')}")
         return web.Response(text="ignored")
 
     data = body.get("data", {})
-    reference = data.get("reference") or data.get("payment_reference")  # Your MBG- reference
+    reference = data.get("reference") or data.get("payment_reference")
     amount = float(data.get("amount", 0))
 
-    # Optional: Adjust if amount is in kobo
+    print(f"💰 Payment - Reference: {reference}, Amount: {amount}")
+
+    # Validate amount (adjust if in kobo)
     if amount < 20000:
-        print("❌ Amount too low:", amount)
+        print(f"❌ Amount too low: {amount}")
         return web.Response(text="invalid amount")
 
+    # Check if user exists
     user = get_user_by_reference(reference)
     if not user:
-        print("⚠️ Reference not found:", reference)
+        print(f"⚠️ Reference not found: {reference}")
         return web.Response(text="reference not found")
 
-    # Update DB first
+    # Mark payment as paid
     mark_payment_paid(reference)
+    print(f"✅ Payment marked as paid for reference: {reference}")
 
-    # Fetch updated user to ensure payment status is 'paid'
-    user = get_user_by_reference(reference)
-
-    await bot.send_message(
-        user["telegram_id"],
-        "✅ *Payment confirmed automatically!*\n\n"
-        "Please upload your signed service agreement PDF to continue.",
-        parse_mode="Markdown"
-    )
+    # Notify user
+    try:
+        await bot.send_message(
+            user["telegram_id"],
+            "✅ *Payment confirmed automatically!*\n\n"
+            "Please upload your signed service agreement PDF to continue.",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        print(f"❌ Failed to notify user {user['telegram_id']}: {e}")
 
     return web.Response(text="ok")
 
@@ -163,8 +182,8 @@ async def start_webserver():
 # ================== MAIN ==================
 async def main():
     await start_webserver()
+    print("✅ Bot started successfully")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
