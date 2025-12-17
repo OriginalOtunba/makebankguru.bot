@@ -126,6 +126,8 @@ async def korapay_webhook(request):
         return web.Response(text="reference not found")
 
     mark_payment_paid(reference)
+    
+    user = get_user_by_reference(reference)
 
     await bot.send_message(
         user["telegram_id"],
@@ -161,3 +163,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
