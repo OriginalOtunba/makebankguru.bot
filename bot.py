@@ -66,6 +66,45 @@ async def start_cmd(message: types.Message):
         reply_markup=kb.as_markup()
     )
 
+# ================== ADMIN COMMANDS ==================
+@dp.message(Command("stats"))
+async def stats_cmd(message: types.Message):
+    if message.from_user.id != ADMIN_CHAT_ID:
+        return
+    
+    from database import get_stats
+    stats = get_stats()
+    
+    await message.answer(
+        f"📊 *Bot Statistics*\n\n"
+        f"⏳ Pending Payments: {stats['pending_payments']}\n"
+        f"✅ Paid Users: {stats['paid_users']}\n"
+        f"📄 Signed Agreements: {stats['signed_agreements']}",
+        parse_mode="Markdown"
+    )
+
+@dp.message(Command("users"))
+async def users_cmd(message: types.Message):
+    if message.from_user.id != ADMIN_CHAT_ID:
+        return
+    
+    from database import get_all_verified_users
+    users = get_all_verified_users()
+    
+    if not users:
+        await message.answer("No verified users yet.")
+        return
+    
+    response = "👥 *Verified Users*\n\n"
+    for user in users[:10]:  # Show first 10
+        status = "✅ Signed" if user['agreement_signed'] else "⏳ Pending Agreement"
+        response += f"• @{user['username']} (ID: {user['telegram_id']}) - {status}\n"
+    
+    if len(users) > 10:
+        response += f"\n_Showing 10 of {len(users)} users_"
+    
+    await message.answer(response, parse_mode="Markdown")
+
 # ================== AGREEMENT UPLOAD ==================
 @dp.message(F.document)
 async def receive_agreement(message: types.Message):
