@@ -235,33 +235,6 @@ def get_user_by_reference(reference: str):
         conn.close()
 
 
-# ================== STORE KORAPAY REFERENCE ==================
-def store_korapay_reference(telegram_id: int, korapay_reference: str):
-    """
-    Store Korapay's reference when user initiates payment.
-    This helps link the webhook callback to the user.
-    """
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    try:
-        c.execute("""
-            UPDATE pending_payments
-            SET korapay_reference=?
-            WHERE telegram_id=?
-        """, (korapay_reference, telegram_id))
-        
-        conn.commit()
-        print(f"✅ Korapay reference stored - User: {telegram_id}, Ref: {korapay_reference}")
-        return True
-    except Exception as e:
-        print(f"❌ Error storing Korapay reference: {e}")
-        conn.rollback()
-        return False
-    finally:
-        conn.close()
-
-
 # ================== GET USER BY KORAPAY REFERENCE ==================
 def get_user_by_korapay_reference(korapay_reference: str):
     """
@@ -313,7 +286,43 @@ def get_user_by_korapay_reference(korapay_reference: str):
         conn.close()
 
 
-# ================== GET USER BY TELEGRAM ID (FOR WEBHOOK MATCHING) ==================
+# ================== GET USER BY TELEGRAM ID ==================
+def get_user_by_telegram_id(telegram_id: int):
+    """
+    Get verified user by their Telegram ID.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    try:
+        c.execute("""
+            SELECT telegram_id, username, payment_reference, korapay_reference,
+                   payment_status, agreement_signed, date_agreement_signed
+            FROM verified_users
+            WHERE telegram_id=?
+        """, (telegram_id,))
+        row = c.fetchone()
+
+        if row:
+            return {
+                "telegram_id": row[0],
+                "username": row[1],
+                "payment_reference": row[2],
+                "korapay_reference": row[3],
+                "payment_status": row[4],
+                "agreement_signed": row[5],
+                "date_agreement_signed": row[6]
+            }
+        return None
+        
+    except Exception as e:
+        print(f"❌ Error getting user by telegram ID: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+# ================== GET PENDING PAYMENT BY TELEGRAM ID ==================
 def get_pending_payment_by_telegram_id(telegram_id: int):
     """
     Get pending payment details for a user (used before payment).
@@ -346,7 +355,42 @@ def get_pending_payment_by_telegram_id(telegram_id: int):
         conn.close()
 
 
-# ================== GET ALL VERIFIED USERS (ADMIN) ==================
+# ================== GET MOST RECENT PENDING PAYMENT ==================
+def get_most_recent_pending_payment():
+    """
+    Get the most recent pending payment (fallback for webhook matching).
+    """
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    try:
+        c.execute("""
+            SELECT telegram_id, username, payment_reference, korapay_reference, status
+            FROM pending_payments
+            WHERE status='pending'
+            ORDER BY date_created DESC
+            LIMIT 1
+        """)
+        row = c.fetchone()
+
+        if row:
+            return {
+                "telegram_id": row[0],
+                "username": row[1],
+                "payment_reference": row[2],
+                "korapay_reference": row[3],
+                "status": row[4]
+            }
+        return None
+        
+    except Exception as e:
+        print(f"❌ Error getting most recent pending payment: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+# ================== GET ALL VERIFIED USERS ==================
 def get_all_verified_users():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -381,43 +425,7 @@ def get_all_verified_users():
         conn.close()
 
 
-# ================== GET MOST RECENT PENDING PAYMENT (FALLBACK) ==================
-def get_most_recent_pending_payment():
-    """
-    Get the most recent pending payment (fallback for webhook matching).
-    Used when Korapay reference doesn't match any stored reference.
-    """
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    try:
-        c.execute("""
-            SELECT telegram_id, username, payment_reference, korapay_reference, status
-            FROM pending_payments
-            WHERE status='pending'
-            ORDER BY date_created DESC
-            LIMIT 1
-        """)
-        row = c.fetchone()
-
-        if row:
-            return {
-                "telegram_id": row[0],
-                "username": row[1],
-                "payment_reference": row[2],
-                "korapay_reference": row[3],
-                "status": row[4]
-            }
-        return None
-        
-    except Exception as e:
-        print(f"❌ Error getting most recent pending payment: {e}")
-        return None
-    finally:
-        conn.close()
-
-
-# ================== GET STATS (ADMIN) ==================
+# ================== GET STATS ==================
 def get_stats():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
