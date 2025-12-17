@@ -15,6 +15,7 @@ from database import (
     mark_agreement_signed,
     get_user_by_reference,
     get_user_by_korapay_reference,
+    get_user_by_telegram_id,
     is_payment_paid,
     ensure_signed_dir
 )
@@ -61,10 +62,74 @@ async def start_cmd(message: types.Message):
         "To activate your Trading Support Service:\n"
         "1️⃣ Complete payment\n"
         "2️⃣ Payment is auto-confirmed\n"
-        "3️⃣ Upload agreement\n\n"
+        "3️⃣ Upload signed agreement\n\n"
         "No manual verification required.",
         parse_mode="Markdown",
         reply_markup=kb.as_markup()
+    )
+
+# ================== STATUS COMMAND ==================
+@dp.message(Command("status"))
+async def status_cmd(message: types.Message):
+    telegram_id = message.from_user.id
+    
+    # Check if payment is verified
+    if not is_payment_paid(telegram_id):
+        await message.answer(
+            "⚠️ *Payment Status: Not Verified*\n\n"
+            "Please complete your payment first.\n"
+            "Use /start to get the payment link.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Check if agreement is signed
+    from database import get_user_by_telegram_id
+    user = get_user_by_telegram_id(telegram_id)
+    
+    if user and user['agreement_signed']:
+        await message.answer(
+            "✅ *Status: Fully Activated*\n\n"
+            f"🔗 Register on Naira Trader:\n{NAIRA_TRADER_LINK}\n\n"
+            f"👥 Join our private group:\n{PRIVATE_GROUP_LINK}",
+            parse_mode="Markdown"
+        )
+    else:
+        kb = InlineKeyboardBuilder()
+        kb.button(text="📄 Download Agreement Template", url=AGREEMENT_LINK)
+        kb.adjust(1)
+        
+        await message.answer(
+            "✅ *Payment: Verified*\n"
+            "⏳ *Agreement: Pending*\n\n"
+            "📋 *Next Step: Upload Signed Agreement*\n\n"
+            "1️⃣ Download the agreement template below\n"
+            "2️⃣ Fill in your details and sign it\n"
+            "3️⃣ Scan/photograph and convert to PDF\n"
+            "4️⃣ Send the PDF file here in this chat\n\n"
+            "⚠️ *Important:* Only PDF files are accepted.",
+            parse_mode="Markdown",
+            reply_markup=kb.as_markup()
+        )
+
+# ================== HELP COMMAND ==================
+@dp.message(Command("help"))
+async def help_cmd(message: types.Message):
+    await message.answer(
+        "ℹ️ *MakeBankGuru Bot Help*\n\n"
+        "*Available Commands:*\n"
+        "/start - Begin registration & payment\n"
+        "/status - Check your activation status\n"
+        "/help - Show this help message\n\n"
+        "*How It Works:*\n"
+        "1️⃣ Use /start to get your payment link\n"
+        "2️⃣ Pay ₦20,000 via the link\n"
+        "3️⃣ Payment is auto-verified\n"
+        "4️⃣ Upload your signed agreement PDF\n"
+        "5️⃣ Get access to Naira Trader & private group\n\n"
+        "*Need Support?*\n"
+        "Contact: @MakeBankGuru",
+        parse_mode="Markdown"
     )
 
 # ================== ADMIN COMMANDS ==================
@@ -113,45 +178,75 @@ async def receive_agreement(message: types.Message):
 
     # Check payment status
     if not is_payment_paid(telegram_id):
-        await message.reply("⚠️ Payment not confirmed yet. Please complete payment first.")
+        kb = InlineKeyboardBuilder()
+        kb.button(text="💳 Make Payment", url=f"{KORAPAY_BASE_LINK}?amount=20000")
+        
+        await message.reply(
+            "⚠️ *Payment Not Confirmed*\n\n"
+            "Please complete your payment first before uploading the agreement.\n\n"
+            "Use /start to get your payment link.",
+            parse_mode="Markdown",
+            reply_markup=kb.as_markup()
+        )
         return
 
     # Validate PDF
     if not message.document.file_name.lower().endswith(".pdf"):
-        await message.reply("❌ Only PDF agreements are allowed.")
+        await message.reply(
+            "❌ *Invalid File Format*\n\n"
+            "Only PDF files are accepted.\n\n"
+            "Please convert your agreement to PDF and try again."
+        )
         return
 
+    # Show processing message
+    processing_msg = await message.reply("⏳ Processing your agreement...")
+
     try:
-        # Download file (FIXED for Aiogram 3.x)
+        # Download file (Aiogram 3.x method)
         timestamp = int(datetime.datetime.now().timestamp())
         file_name = f"{telegram_id}_{timestamp}.pdf"
         file_path = os.path.join(SIGNED_DIR, file_name)
 
-        # Correct method for Aiogram 3.x
         file = await bot.get_file(message.document.file_id)
         await bot.download_file(file.file_path, file_path)
 
         # Mark as signed
         mark_agreement_signed(telegram_id)
 
+        # Delete processing message
+        await processing_msg.delete()
+
+        # Send success message with next steps
         await message.reply(
-            "✅ Agreement received successfully!\n\n"
-            f"🔗 Register on Naira Trader:\n{NAIRA_TRADER_LINK}\n\n"
-            f"👥 Join our private group:\n{PRIVATE_GROUP_LINK}"
+            "✅ *Agreement Received Successfully!*\n\n"
+            "🎉 Your account is now fully activated!\n\n"
+            "📌 *Next Steps:*\n\n"
+            f"1️⃣ Register on Naira Trader:\n{NAIRA_TRADER_LINK}\n\n"
+            f"2️⃣ Join our private group:\n{PRIVATE_GROUP_LINK}\n\n"
+            "Welcome to MakeBankGuru! 🚀",
+            parse_mode="Markdown"
         )
 
         # Notify admin
-        await bot.send_message(
+        await bot.send_document(
             ADMIN_CHAT_ID,
-            f"📄 New agreement uploaded\n"
-            f"User: @{message.from_user.username or 'N/A'}\n"
-            f"Telegram ID: {telegram_id}\n"
-            f"File: {file_path}"
+            types.FSInputFile(file_path),
+            caption=f"📄 *New Agreement Uploaded*\n\n"
+                    f"👤 User: @{message.from_user.username or 'N/A'}\n"
+                    f"🆔 Telegram ID: {telegram_id}\n"
+                    f"📅 Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            parse_mode="Markdown"
         )
 
     except Exception as e:
         print(f"❌ Error downloading agreement: {e}")
-        await message.reply("❌ Failed to process agreement. Please try again.")
+        await processing_msg.delete()
+        await message.reply(
+            "❌ *Failed to Process Agreement*\n\n"
+            "There was an error processing your file.\n"
+            "Please try again or contact support."
+        )
 
 # ================== KORAPAY WEBHOOK ==================
 async def korapay_webhook(request):
@@ -201,13 +296,23 @@ async def korapay_webhook(request):
     mark_payment_paid(korapay_reference, user.get("payment_reference"))
     print(f"✅ Payment marked as paid for user: {user['telegram_id']}")
 
-    # Notify user
+    # Notify user with detailed instructions
     try:
+        kb = InlineKeyboardBuilder()
+        kb.button(text="📄 Download Agreement Template", url=AGREEMENT_LINK)
+        kb.adjust(1)
+        
         await bot.send_message(
             user["telegram_id"],
-            "✅ *Payment confirmed automatically!*\n\n"
-            "Please upload your signed service agreement PDF to continue.",
-            parse_mode="Markdown"
+            "✅ *Payment Confirmed Successfully!*\n\n"
+            "📋 *Next Step: Upload Signed Agreement*\n\n"
+            "1️⃣ Download the agreement template below\n"
+            "2️⃣ Fill in your details and sign it\n"
+            "3️⃣ Scan/photograph and convert to PDF\n"
+            "4️⃣ Send the PDF file here in this chat\n\n"
+            "⚠️ *Important:* Only PDF files are accepted.",
+            parse_mode="Markdown",
+            reply_markup=kb.as_markup()
         )
     except Exception as e:
         print(f"❌ Failed to notify user {user['telegram_id']}: {e}")
