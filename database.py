@@ -63,21 +63,20 @@ def mark_payment_paid(reference: str):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # Update pending payment status
+    # 1️⃣ Update pending payment
     c.execute("""
         UPDATE pending_payments
         SET status='paid'
         WHERE payment_reference=?
     """, (reference,))
 
-    # Move to verified_users table or update if exists
+    # 2️⃣ Upsert into verified_users
     c.execute("""
         INSERT INTO verified_users (telegram_id, username, payment_reference, payment_status, date_payment_verified)
         SELECT telegram_id, username, payment_reference, 'paid', ?
         FROM pending_payments
         WHERE payment_reference=?
         ON CONFLICT(telegram_id) DO UPDATE SET
-            username=excluded.username,
             payment_reference=excluded.payment_reference,
             payment_status='paid',
             date_payment_verified=excluded.date_payment_verified
@@ -85,6 +84,7 @@ def mark_payment_paid(reference: str):
 
     conn.commit()
     conn.close()
+
 
 
 # ================== AGREEMENT SIGNING ==================
@@ -140,3 +140,4 @@ def is_payment_paid(telegram_id: int):
 def ensure_signed_dir(directory="signed_agreements"):
     os.makedirs(directory, exist_ok=True)
     return directory
+
