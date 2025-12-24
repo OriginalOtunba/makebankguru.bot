@@ -222,7 +222,7 @@ async def receive_agreement(message: types.Message):
             "✅ *Agreement Received Successfully!*\n\n"
             "🎉 Your account is now fully activated!\n\n"
             "📌 *Next Steps:*\n\n"
-            f"1️⃣ Register on Naira Trader:\n{NAIRA_TRADER_LINK}\n\n"
+            f"1️⃣ Register for a  Naira Trading account:\n{NAIRA_TRADER_LINK}\n\n"
             f"2️⃣ Join our private group:\n{PRIVATE_GROUP_LINK}\n\n"
             "Welcome to MakeBankGuru! 🚀",
             parse_mode="Markdown"
@@ -345,4 +345,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
