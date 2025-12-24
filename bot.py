@@ -90,7 +90,7 @@ async def status_cmd(message: types.Message):
     if user and user['agreement_signed']:
         await message.answer(
             "✅ *Status: Fully Activated*\n\n"
-            f"🔗 Register on Naira Trader:\n{NAIRA_TRADER_LINK}\n\n"
+            f"🔗 Register for your Naira Trading Account:\n{NAIRA_TRADER_LINK}\n\n"
             f"👥 Join our private group:\n{PRIVATE_GROUP_LINK}",
             parse_mode="Markdown"
         )
@@ -345,3 +345,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
