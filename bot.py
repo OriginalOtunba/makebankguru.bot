@@ -61,9 +61,9 @@ async def start_cmd(message: types.Message):
         "👋 *Welcome to MakeBankGuru*\n\n"
         "To activate your Trading Support Service:\n"
         "1️⃣ Complete payment\n"
-        "2️⃣ Payment is auto-confirmed\n"
+        "2️⃣ Gain Access to our Top 3 Strategies\n"
         "3️⃣ Upload signed agreement\n\n"
-        "No manual verification required.",
+        "After verification, select your strategy .",
         parse_mode="Markdown",
         reply_markup=kb.as_markup()
     )
@@ -91,7 +91,7 @@ async def status_cmd(message: types.Message):
         await message.answer(
             "✅ *Status: Fully Activated*\n\n"
             f"🔗 Register for your Naira Trading Account:\n{NAIRA_TRADER_LINK}\n\n"
-            f"👥 Join our private group:\n{PRIVATE_GROUP_LINK}",
+            f"👥 Join the Elite Group:\n{PRIVATE_GROUP_LINK}",
             parse_mode="Markdown"
         )
     else:
@@ -126,7 +126,7 @@ async def help_cmd(message: types.Message):
         "2️⃣ Pay ₦20,000 via the link\n"
         "3️⃣ Payment is auto-verified\n"
         "4️⃣ Upload your signed agreement PDF\n"
-        "5️⃣ Get access to Naira Trader & private group\n\n"
+        "5️⃣ Get access to Naira Trader Top 3 Strategies & Elite Group\n\n"
         "*Need Support?*\n"
         "Contact: @MakeBankGuru",
         parse_mode="Markdown"
@@ -223,7 +223,7 @@ async def receive_agreement(message: types.Message):
             "🎉 Your account is now fully activated!\n\n"
             "📌 *Next Steps:*\n\n"
             f"1️⃣ Register for a  Naira Trading account:\n{NAIRA_TRADER_LINK}\n\n"
-            f"2️⃣ Join our private group:\n{PRIVATE_GROUP_LINK}\n\n"
+            f"2️⃣ Join our Elite Group:\n{PRIVATE_GROUP_LINK}\n\n"
             "Welcome to MakeBankGuru! 🚀",
             parse_mode="Markdown"
         )
@@ -345,5 +345,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
