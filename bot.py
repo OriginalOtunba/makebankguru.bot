@@ -59,6 +59,66 @@ async def start_cmd(message: types.Message):
 
     await message.answer(
         "👋 *Welcome to MakeBankGuru*\n\n"
+        "💸 MakeBankGuru Trading Support Service 💸
+Powered by MakeBankGuru | Naira Trader Affiliate Partner
+
+This service is designed exclusively for clients who open their Naira Trading account through our affiliate link.
+
+💼 What We Provide 
+
+This is a digital trading assistance service, offering:
+ • Market analysis support
+ • Strategy implementation guidance
+ • Automated trading setup assistance
+ • Risk-management parameter configuration
+ • Ongoing system optimization based on market conditions
+
+Clients authorize access through read-only or investor-level credentials, which allows our system to apply the user-selected trading strategy on their behalf.
+
+No deposit access. No withdrawal access. No fund management.
+
+💳 Service Structure
+
+To activate your trading support package:
+ 1. Pay the ₦20,000 setup /service fee via our secure payment link.
+ 2. Complete payment verification inside our Telegram bot @makebankguru_bot .
+ 3. Sign and upload the digital service agreement.
+ 4. Choose your preferred trading approach.
+ 5. Our system will apply your selected strategy using your investor access.
+
+📊 Performance-Based Support Fee
+
+When clients withdraw profits generated based on their selected strategy, a 20% support fee is charged.
+This is billed as a “performance-based technical support fee”, not a profit split.
+
+You retain 80% of performance.
+We charge 20% for ongoing monitoring, optimization, and strategy maintenance.
+
+🛡️ Safety & Control
+
+ • We never request deposit/withdrawal permissions.
+ • Only investor-level authorization is used.
+ • You retain full control of your account at all times.
+ • All processes are agreement-based and transparent.
+
+📄 Disclaimer 
+
+This is not an investment service and we do not provide financial returns, guarantees, or capital growth promises.
+Users choose their own trading strategies, and market performance may vary.
+By using our service, clients accept all market-related risks.
+
+🚀 Getting Started
+
+After payment, you’ll receive access to:
+ • Affiliate registration link
+ • Private group
+ • Automated onboarding bot
+ • Service agreement upload
+ • Strategy setup assistance
+
+Add-On
+
+If you’re not ready for the full service, join our Free Daily Signal Channel for educational trade ideas and market insights."
         "To activate your Trading Support Service:\n"
         "1️⃣ Complete payment\n"
         "2️⃣ Gain Access to our Top 3 Strategies\n"
